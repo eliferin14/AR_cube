@@ -43,3 +43,23 @@ This process can be applied to any 3D point we want, as long as we have its coor
 #### Drawing of a reference frame
 We can draw a 3D reference frame in the image by calculating th pojection of the origin and of the 3 unit vectors
 
+I chose to use the standard colors for the 3 vectors (red fo rx, green for y, blue for z)
+
+### Drawing the cube
+At this point drawing the cube is just a matter of defining its corners in a suitable reference frame, and then projecting them onto the image.
+
+I wanted the cube to be in the center of the chessboard, so I defined a central reference frame by manually defining a translation vector. Also, to impose the desired orientation (y pointing up, z exiting the plane) I used a triplet of Euler angles to define the rotation matrix
+
+The transformation matrix from the camera frame to this central frame can be obtained by multiplying the camera2chessboard transformation by the chessboard2center transformation 
+
+The cube is designed such that the side is 2cm long (two chessboard squares), and the square base is centered in the central reference frame
+
+[The cube is dynamically calculated as the chessboard moves (video)](https://imgur.com/CVmUvCD)
+
+#### Rotating cube
+To add a cool effect, I made the cube rotate
+
+To do that I simply needed to recalculate the transformation between the central frame and the cube frame at each time step, using an evolving angle (constant angular speed)
+
+[The cube rotates aswell (video)](https://imgur.com/ENrEHXJ)
+
