@@ -6,16 +6,6 @@ from pytransform3d import rotations as rt
 
 # Function to draw two images side by side
 def concatenate_images(image1, image2):
-    """
-    Concatenates two images side by side.
-    
-    Args:
-        image1: The first input image.
-        image2: The second input image.
-    
-    Returns:
-        concatenated_image: The concatenated image.
-    """
     # Assuming images have the same dimensions
     height = image1.shape[0]
     width = image1.shape[1] + image2.shape[1]
@@ -63,7 +53,6 @@ def project_point(point, camera_matrix, rvec, tvec):
 
     # Define the transformation matrix
     T = np.vstack( [np.hstack([rot_matrix, tvec]), [0, 0, 0, 1]])
-    #W = np.hstack([rot_matrix, tvec])
 
     # Transform the point to the camera frame (after converting to homogeneous)
     point_homogeneous = np.vstack([point.reshape(-1,1), 1])
@@ -86,7 +75,7 @@ def project_array_of_points(points, camera_matrix, rvec, tvec):
     return projected_points
 
 # Function to draw the object reference frame in the image
-def draw_object_frame(points, image, camera_matrix, rvec, tvec, line_width):
+def draw_frame(points, image, camera_matrix, rvec, tvec, line_width):
     # Compute pixel coordinates of the frame points
     projected_frame_points = project_array_of_points(points, camera_matrix, rvec, tvec)
     projected_frame_points_pixels = np.round(projected_frame_points).astype(int)
@@ -130,7 +119,7 @@ def draw_cube(points, image, camera_matrix, rvec, tvec, color, line_width):
     points = np.round(points).astype(int)
     # Bottom square
     cv2.line(image, points[:,0], points[:,1], color, line_width)
-    cv2.line(image, points[:,1], points[:,2], (0,255,0), line_width)
+    cv2.line(image, points[:,1], points[:,2], color, line_width)
     cv2.line(image, points[:,2], points[:,3], color, line_width)
     cv2.line(image, points[:,3], points[:,0], color, line_width)
     # Top square
@@ -141,7 +130,7 @@ def draw_cube(points, image, camera_matrix, rvec, tvec, color, line_width):
     # Sides
     cv2.line(image, points[:,0], points[:,4], color, line_width)
     cv2.line(image, points[:,1], points[:,5], color, line_width)
-    cv2.line(image, points[:,2], points[:,6], (255,0,0), line_width)
+    cv2.line(image, points[:,2], points[:,6], color, line_width)
     cv2.line(image, points[:,3], points[:,7], color, line_width)
 
     return image
@@ -194,16 +183,17 @@ def main():
             ret, rvec, tvec = cv2.solvePnP(object_points, corners, camera_matrix, dist_coeffs)
 
             # Draw reference frame
-            image = draw_object_frame(frame_points, image, camera_matrix, rvec, tvec, 2)
-            image = draw_object_frame(center_frame_points, image, camera_matrix, rvec, tvec, 2)
+            image = draw_frame(frame_points, image, camera_matrix, rvec, tvec, 2)
+            #image = draw_frame(center_frame_points, image, camera_matrix, rvec, tvec, 2)
 
             # Calculate the rotation reference frame
             euler_angles_cube = np.array([cube_angular_velocity*start_time, 0, 0])
             center_to_cube_transformation = euler_transformation_matrix(euler_angles_cube, np.array([0,0,0]))
-            #print(center_to_cube_transformation)
-            cube_coord_center_frame = apply_transformation(center_to_cube_transformation, cube_points)
-            cube_coord_corner_frame = apply_transformation(corner_to_center_transformation, cube_coord_center_frame)
-            image = draw_cube(cube_coord_corner_frame, image, camera_matrix, rvec, tvec, (0,0,255), 4)
+            corner_to_cube_transformation = corner_to_center_transformation @ center_to_cube_transformation
+            cube_frame = apply_transformation(corner_to_cube_transformation, frame_points)
+            image = draw_frame(cube_frame, image, camera_matrix, rvec, tvec, 2)
+            cube_in_corner_frame = apply_transformation(corner_to_cube_transformation, cube_points)
+            image = draw_cube(cube_in_corner_frame, image, camera_matrix, rvec, tvec, (0,128,255), 4)
 
         # Add text
         font_scale = 0.5
@@ -219,7 +209,7 @@ def main():
             break
 
         loop_time = time.time() - start_time
-        fps = fps + 0.2*(1/loop_time - fps)
+        fps = 1/loop_time
 
 
     # Release the capture device and close all OpenCV windows
