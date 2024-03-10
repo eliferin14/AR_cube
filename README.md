@@ -54,6 +54,8 @@ The transformation matrix from the camera frame to this central frame can be obt
 
 The cube is designed such that the side is 2cm long (two chessboard squares), and the square base is centered in the central reference frame
 
+![Screenshot from 2024-03-10 23-39-47](https://github.com/eliferin14/AR_cube/assets/76204928/0d2780b9-97da-4fbf-b312-dc0b8625b85d)
+
 In the picture above you can see the chessboard frame in the top left, the central frame in the center of the chessboard and the cube in orange
 
 [The cube is dynamically calculated as the chessboard moves (video)](https://imgur.com/CVmUvCD)
