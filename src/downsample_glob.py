@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 import glob
 
-images = glob.glob('*.jpg')
+images = glob.glob('../calibration_images/*.jpg')
 target_size = (640,480)
 
 for image_filename in images:
