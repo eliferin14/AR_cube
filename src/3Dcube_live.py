@@ -25,6 +25,8 @@ def concatenate_images(image1, image2):
 calibration_data = np.load('calibration_params.npy', allow_pickle=True).item()
 camera_matrix = calibration_data['camera_matrix']
 dist_coeffs = calibration_data['dist_coeffs']
+dist_coeffs = np.array([0,0,0,0,0]).astype(np.float32)
+print(dist_coeffs)
 
 # Compute the undistort map once for all. We assume to be working with (640,480) images
 image_width = 640
@@ -37,10 +39,29 @@ def define_chessboard_3D_coordinates(pattern_size):
     cols = pattern_size[1]
     coord = np.zeros((rows*cols,3), np.float32)
     coord[:,:2] = np.mgrid[0:rows,0:cols].T.reshape(-1,2)
-    return coord
+    return coord*chessboard_square_size
+
+# ChArUco board
+charuco_flag = True
+markers_x = 8
+markers_y = 6
+chessboard_square_size = 20
+marker_size = 15
+dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+board = cv2.aruco.CharucoBoard((markers_x,markers_y), chessboard_square_size, marker_size, dictionary)
+board.setLegacyPattern(True)
+board_image = board.generateImage((1920,1080))
+cv2.imwrite("board.jpg", board_image)
+
+# Parameters of the detector
+params = cv2.aruco.DetectorParameters()
+params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
+
+# Define the detector
+detector = cv2.aruco.ArucoDetector(dictionary, params)
 
 # Object points: we are using a 6x8 squares chessboard -> 5x7 corners
-pattern_size = (7,5)
+pattern_size = (markers_x-1,markers_y-1)
 object_points = define_chessboard_3D_coordinates(pattern_size)
 
 # Criteria for cornerSubPix
@@ -88,6 +109,7 @@ def draw_frame(points, image, camera_matrix, rvec, tvec, line_width):
 
 # Notable reference frames
 frame_points = np.hstack([ np.zeros((3,1)), np.eye(3) ])
+frame_points *= chessboard_square_size
 
 # Calculate transformation matrix from Euler angles and translation vector
 def euler_transformation_matrix(euler_angles, translation):
@@ -104,14 +126,18 @@ def apply_transformation(transformation, points):
 
 # Transformation from the corner rf to the center rf
 euler_angles = [0,np.pi,np.pi]
-translation = np.array([3,2,0])
-corner_to_center_transformation = euler_transformation_matrix(euler_angles, translation)
-center_frame_points = apply_transformation(corner_to_center_transformation, frame_points)
+translation_chessboard = np.array([3,2,0])*chessboard_square_size
+chessboard_corner_to_center_transformation = euler_transformation_matrix(euler_angles, translation_chessboard)
+translation_charuco = np.array([4,3,0])*chessboard_square_size
+charuco_corner_to_center_transformation = euler_transformation_matrix(euler_angles, translation_charuco)
+center_frame_points = apply_transformation(chessboard_corner_to_center_transformation, frame_points)
 
 # Cube in the center
 cube_points = np.vstack([[1,1,0],[-1,1,0],[-1,-1,0],[1,-1,0],[1,1,2],[-1,1,2],[-1,-1,2],[1,-1,2]]).T
-cube_points_transformed = apply_transformation(corner_to_center_transformation, cube_points)
-cube_angular_velocity = 0.5
+cube_points *= chessboard_square_size
+cube_points_transformed_chessboard = apply_transformation(chessboard_corner_to_center_transformation, cube_points)
+cube_points_transformed_charuco = apply_transformation(charuco_corner_to_center_transformation, cube_points)
+cube_angular_velocity = 1
 
 def draw_cube(points, image, camera_matrix, rvec, tvec, color, line_width):
     # Project points to pixels
@@ -136,84 +162,131 @@ def draw_cube(points, image, camera_matrix, rvec, tvec, color, line_width):
     return image
 
 #######################
-def main():
 
-    # Open the video capture
-    camera = cv2.VideoCapture('/dev/video0')
+# Open the video capture
+camera = cv2.VideoCapture('/dev/video0')
 
-    # Check if the camera was opened successfully
-    if not camera.isOpened():
-        print("Error: Couldn't open camera.")
-        return
+# Check if the camera was opened successfully
+if not camera.isOpened():
+    print("Error: Couldn't open camera.")
+    exit()
+
+# Create a window and set the mouse callback function
+cv2.namedWindow('Frame')
+
+# FPS indicator
+fps = 0
+
+# Start of the experiment
+time_0 = time.time()
+
+while True:
+    # Start the time
+    start_time = time.time()
+
+    # Capture frame
+    ret, distorted_image = camera.read()
+
+    # Check if the frame was captured successfully
+    if not ret:
+        print("Error: Couldn't capture frame.")
+        break
+
+    # Apply undistortion
+    #image = cv2.remap(distorted_image, und_map_x, und_map_y, cv2.INTER_LINEAR)
+    undistorted_image = cv2.undistort(distorted_image, camera_matrix, dist_coeffs)
+    #image = distorted_image.copy()
+
     
-    # Create a window and set the mouse callback function
-    cv2.namedWindow('Frame')
+    # Find the chessboard corners in the image
+    image = undistorted_image.copy()
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    ret, corners = cv2.findChessboardCorners(gray_image, pattern_size, None)
+    if ret:
+        corners = cv2.cornerSubPix(gray_image, corners.astype(np.float32), (11,11), (-1,-1), criteria)
+        #image = cv2.drawChessboardCorners(image, pattern_size, corners, ret)
 
-    # FPS indicator
-    fps = 0
+        # Compute extrinsic parameters
+        ret, rvec, tvec = cv2.solvePnP(object_points, corners, camera_matrix, dist_coeffs)
 
-    # Start of the experiment
-    time_0 = time.time()
+        # Draw reference frame
+        image = draw_frame(frame_points, image, camera_matrix, rvec, tvec, 2)
+        #image = draw_frame(center_frame_points, image, camera_matrix, rvec, tvec, 2)
 
-    while True:
-        # Start the time
-        start_time = time.time()
+        # Calculate the rotation reference frame
+        euler_angles_cube = np.array([cube_angular_velocity*start_time, 0, 0])
+        center_to_cube_transformation = euler_transformation_matrix(euler_angles_cube, np.array([0,0,0]))
+        corner_to_cube_transformation = chessboard_corner_to_center_transformation @ center_to_cube_transformation
+        cube_frame = apply_transformation(corner_to_cube_transformation, frame_points)
+        image = draw_frame(cube_frame, image, camera_matrix, rvec, tvec, 2)
+        cube_in_corner_frame = apply_transformation(corner_to_cube_transformation, cube_points)
+        image = draw_cube(cube_in_corner_frame, image, camera_matrix, rvec, tvec, (0,128,255), 4)
 
-        # Capture frame
-        ret, distorted_image = camera.read()
+    else:
+        image[:, :, 2] = 255
 
-        # Check if the frame was captured successfully
-        if not ret:
-            print("Error: Couldn't capture frame.")
-            break
+    chessboard_image = image.copy()
 
-        # Apply undistortion
-        #image = cv2.remap(distorted_image, und_map_x, und_map_y, cv2.INTER_LINEAR)
-        #image = cv2.undistort(distorted_image, camera_matrix, dist_coeffs)
-        image = distorted_image.copy()
 
-        # Find the chessboard corners in the image
-        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        ret, corners = cv2.findChessboardCorners(gray_image, pattern_size, None)
+    # Find the markers
+    image = undistorted_image.copy()
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    detector = cv2.aruco.ArucoDetector(dictionary, params)
+    marker_corners, marker_ids, candidates_rejected = detector.detectMarkers(gray_image)
+    if marker_ids is not None:
+        [marker_corners, marker_ids, candidates_rejected, recovered_ids] = detector.refineDetectedMarkers(gray_image, board, marker_corners, marker_ids, candidates_rejected)
+        #print(recovered_ids)
+        #image = cv2.aruco.drawDetectedMarkers(image, marker_corners, marker_ids)
+
+        ret, charuco_corners, charuco_ids = cv2.aruco.interpolateCornersCharuco(marker_corners, marker_ids, gray_image, board, cameraMatrix=camera_matrix)
+        
         if ret:
-            corners = cv2.cornerSubPix(gray_image, corners.astype(np.float32), (11,11), (-1,-1), criteria)
-            #image = cv2.drawChessboardCorners(image, pattern_size, corners, ret)
+            #image = cv2.aruco.drawDetectedCornersCharuco(image, charuco_corners, charuco_ids, (0,0,255))
 
-            # Compute extrinsic parameters
-            ret, rvec, tvec = cv2.solvePnP(object_points, corners, camera_matrix, dist_coeffs)
+            rvec = np.zeros((3,1))
+            tvec = np.zeros((3,1))
+            ret, rvec, tvec = cv2.aruco.estimatePoseCharucoBoard(charuco_corners, charuco_ids, board, camera_matrix, dist_coeffs, rvec, tvec)
 
-            # Draw reference frame
-            image = draw_frame(frame_points, image, camera_matrix, rvec, tvec, 2)
-            #image = draw_frame(center_frame_points, image, camera_matrix, rvec, tvec, 2)
+            if ret: 
+                image = draw_frame(frame_points, image, camera_matrix, rvec, tvec, 2)
 
-            # Calculate the rotation reference frame
-            euler_angles_cube = np.array([cube_angular_velocity*start_time, 0, 0])
-            center_to_cube_transformation = euler_transformation_matrix(euler_angles_cube, np.array([0,0,0]))
-            corner_to_cube_transformation = corner_to_center_transformation @ center_to_cube_transformation
-            cube_frame = apply_transformation(corner_to_cube_transformation, frame_points)
-            image = draw_frame(cube_frame, image, camera_matrix, rvec, tvec, 2)
-            cube_in_corner_frame = apply_transformation(corner_to_cube_transformation, cube_points)
-            image = draw_cube(cube_in_corner_frame, image, camera_matrix, rvec, tvec, (0,128,255), 4)
+                # Calculate the rotation reference frame
+                euler_angles_cube = np.array([cube_angular_velocity*start_time, 0, 0])
+                center_to_cube_transformation = euler_transformation_matrix(euler_angles_cube, np.array([0,0,0]))
+                corner_to_cube_transformation = charuco_corner_to_center_transformation @ center_to_cube_transformation
+                cube_frame = apply_transformation(corner_to_cube_transformation, frame_points)
+                image = draw_frame(cube_frame, image, camera_matrix, rvec, tvec, 2)
+                cube_in_corner_frame = apply_transformation(corner_to_cube_transformation, cube_points)
+                image = draw_cube(cube_in_corner_frame, image, camera_matrix, rvec, tvec, (0,128,255), 4)
+            else:
+                image[:, :, 2] = 255
+        else:
+            image[:, :, 2] = 255
+    else:
+        image[:, :, 2] = 255
 
-        # Add text
-        font_scale = 0.5
-        text_height = 20
-        cv2.putText(image, f"FPS: {fps:.2f}", (10, 1*text_height), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), 2)
-        if not ret: cv2.putText(image, f"Board not detected!", (10, 2*text_height), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0,255), 2)
+    charuco_image = image.copy()
 
-        output = concatenate_images(distorted_image, image)
-        cv2.imshow('Frame', image)
+    # Add text
+    font_scale = 0.5
+    text_height = 20
+    cv2.putText(image, f"FPS: {fps:.2f}", (10, 1*text_height), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), 2)
+    if not ret: cv2.putText(image, f"Board not detected!", (10, 2*text_height), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0,255), 2)
 
-        # Check for key press; if 'q' is pressed, exit the loop
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+    cv2.putText(chessboard_image, f"CHESSBOARD ONLY", (10, 1*text_height), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), 2)
+    cv2.putText(charuco_image, f"CHARUCO BOARD", (10, 1*text_height), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 0), 2)
 
-        loop_time = time.time() - start_time
-        fps = 1/loop_time
+    output = concatenate_images(chessboard_image, charuco_image)
+    cv2.imshow('Frame', output)
+
+    # Check for key press; if 'q' is pressed, exit the loop
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+    loop_time = time.time() - start_time
+    fps = 1/loop_time
 
 
-    # Release the capture device and close all OpenCV windows
-    camera.release()
-    cv2.destroyAllWindows()
-
-main()
+# Release the capture device and close all OpenCV windows
+camera.release()
+cv2.destroyAllWindows()

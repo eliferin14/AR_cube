@@ -2,8 +2,8 @@ import numpy as np
 import cv2
 import glob
 
-images = glob.glob('../calibration_images/*.jpg')
-target_size = (640,480)
+images = glob.glob('../ChArUco_images/*.jpg')
+target_size = (960,720)
 
 for image_filename in images:
     image = cv2.imread(image_filename)
