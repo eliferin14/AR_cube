@@ -76,4 +76,5 @@ The main advantage of this approach is that the corners of the chessboard are un
 Also, the markers allow the algorithm to estimate the pose of the camera even if some of them are occluded
 
 [Comparison between using only the chessboard and the charuco board](https://imgur.com/a/mf3809V)
+In the video, the frame becomes red when the board is not detected
 
