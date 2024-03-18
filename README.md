@@ -63,7 +63,17 @@ In the picture above you can see the chessboard frame in the top left, the centr
 #### Rotating cube
 To add a cool effect, I made the cube rotate
 
+
 To do that I simply needed to recalculate the transformation between the central frame and the cube frame at each time step, using an evolving angle (constant angular speed)
 
 [The cube rotates aswell (video)](https://imgur.com/ENrEHXJ)
+
+# ChArUco boards
+To add robustness to the project, I substituted the simple chessboard with a ChArUco board, which combines the traditional chessboard and Aruco markers.
+
+The main advantage of this approach is that the corners of the chessboard are uniquely identified, based on the marker next to them
+
+Also, the markers allow the algorithm to estimate the pose of the camera even if some of them are occluded
+
+[Comparison between using only the chessboard and the charuco board](https://imgur.com/a/mf3809V)
 
